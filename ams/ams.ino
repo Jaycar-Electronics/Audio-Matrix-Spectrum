@@ -26,6 +26,8 @@ byte i=31;                                                        //sample numbe
 
 void setup() {
   matrixsetup();                                      //set up matrix control pins and timer
+  Serial.begin(9600); //we've found this to be a quick and easy way to set up the
+                      //correct interrupt timing functions, almost purely by accident.
 }
 
 void loop() {
