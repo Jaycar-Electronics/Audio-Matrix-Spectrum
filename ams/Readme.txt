@@ -1,0 +1,1 @@
+Extract FHT.zip to Documents/Arduino/Libraries/FHT so that it can load the library correctly. 

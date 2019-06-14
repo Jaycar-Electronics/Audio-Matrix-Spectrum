@@ -1,86 +1,113 @@
-//Duinotech Audio Matrix Spectrum
-//audio sample > FFT > display as spectrum
-//need to adjust pot on mic module until null value is around midpoint (about when LED flickers on and off)
-//uses timer1 to implement audio sampling rate and scanning
-//FFT code from http://forum.arduino.cc/index.php?topic=38153.0
-//modified to work with newer versions of Arduino
-//1500Hz sample rate gives 0-750Hz (not very precise though)
-#include "fix_fft.h"
-#define AUDIO A7
-char im[256];       //only needs 32 bytes, but we've got heaps of RAM
-char data[256];     //only needs 32 bytes, but we've got heaps of RAM
-#define MATRIXLAT 2
-#define MATRIXCLK 3
-#define MATRIXDI 4
-#define MATRIXG 5
-#define MATRIXA 6
-#define MATRIXB 7
-#define MATRIXC 8
-#define MATRIXD 9
-#define MATRIXFREQ 1500L
-unsigned int matrixdata[16]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};    //for display data
-byte level[16]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};                 //for current level
-byte peak[16]={0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};                  //for peak hold
-byte matrixscan=0;                                                //column being scanned
-byte i=31;                                                        //sample number
+//audio matrix spectrum re-write 
 
-void setup() {
-  matrixsetup();                                      //set up matrix control pins and timer
-  Serial.begin(9600); //we've found this to be a quick and easy way to set up the
-                      //correct interrupt timing functions, almost purely by accident.
+//reading off audio A0
+#define AUDIO A0 
+
+//128 samples, log output 
+#define FHT_N 128
+#define LOG_OUT 1
+
+//now include the library, from params above
+//use FHT library to perform "FFT-like" conversion
+#include <FHT.h>
+
+//peak timeout before dropping 
+#define PEAK_TIMEOUT 40
+
+
+//matrix code
+#define LATCH 2 
+#define CLK 3
+#define DATA 4
+#define EN 5
+//ROW(1) => Pin 6; change to your set up if different.
+#define ROW(x) (x+5)
+
+int peaks[16] = {0};
+int peakChanges[16] = {0};
+
+void setup(){
+
+  
+	TIMSK0 = 0;	// turn off timer0 for lower jitter
+	ADCSRA = 0xe5; // set the adc to free running mode
+	ADMUX = 0x40;  // use adc0
+	DIDR0 = 0x01;  // turn off the digital input for adc0
+
+  pinMode( LATCH, OUTPUT);  //set up pins
+  pinMode( CLK, OUTPUT);
+  pinMode( DATA, OUTPUT);
+  pinMode( EN, OUTPUT);
+  pinMode( ROW(1), OUTPUT);
+  pinMode( ROW(2), OUTPUT);
+  pinMode( ROW(3), OUTPUT);
+  pinMode( ROW(4), OUTPUT);
 }
 
-void loop() {
-  if(!i){                                                             //wait until all data is sampled
-    fix_fft(data,im,5,0);                                             //do the FFT
-    for(int j=0;j<128;j++){
-      data[j] = sqrt(data[j] * data[j] + im[j] * im[j]);              //get magnitude of FFT
+void loop(){
+  for(short i = 0; i < FHT_N; i++){
+
+    while(!(ADCSRA & 0x10)) //wait for ADC to be ready
+      ;
+
+    ADCSRA = 0xF5; //restart ADC
+    byte m = ADCL;  //ADC lower reg
+    byte j = ADCH;  //   higher reg
+
+    int k = (j << 8) | m; //formed into an int
+    k -= 0x0200;  //center; (signed int)
+
+    fht_input[i]  = k << 6; //as a 16b signed int
+  }
+
+  fht_window();  // window the data for better frequency response
+  fht_reorder(); // reorder the data before doing the fht
+  fht_run();	 // process the data in the fht
+  fht_mag_log(); // take the output of the fht
+  
+  for(short i = 0; i < 16; i++){
+
+    long fht = fht_log_out[2+(i*2)]; // we only care about half of the first 32 values; except for the 2 fundies
+
+    fht = (fht < 32) ? 0 : fht-32; //zero it out if it's under 32; otherwise shift it down a notch
+    fht *= 2; //amplify it 
+
+    //size of the column is between a vlue of 0 - 16
+    // so divide by 16 for how many pixels need to light up ( 16*16 = 256 )
+
+    int str = fht / 16; 
+
+    //check the peaks, is it larger? then slowly reduce, else re-max it;
+    if (peaks[i] < str) {
+      peaks[i] = str; 
+      peakChanges[i] = PEAK_TIMEOUT;
     }
-    for(int j=0;j<16;j++){
-      level[j]=data[j+1];                                             //put in array, except DC
-      if(level[j]>15){level[j]=15;}                                   //avoid clipping
-      if(peak[j]){peak[j]--;}                                         //fade peak level
-      if(level[j]>peak[j]){peak[j]=level[j];}                         //check peaks
-      matrixdata[j]=(65536L-(32768>>(level[j])))|(32768>>peak[j]);    //convert to bar graph
-    }                                                                 //display is constantly updated, so that's all we need to do.
-  i=31;                                                               //start again
+    else {
+      if (peakChanges[i] > 0)
+        peakChanges[i] -= 1;  //each pass will stay here, until peakChanges drop.
+      else
+        peaks[i] -= 1; 
+    }
+    //peaks[i] = peaks[i] > str ? --peaks[i] : str;
+
+    int peak = (0x1 << peaks[i]); 
+    int column = (0x1 << str)-1; 
+
+    matrixData(i, column | peak );
+    delay(1);
   }
 }
+void matrixData(short row, int bitmask){
 
-void matrixsetup(){
-  pinMode( MATRIXLAT, OUTPUT);  //set up pins
-  pinMode( MATRIXCLK, OUTPUT);
-  pinMode( MATRIXDI, OUTPUT);
-  pinMode( MATRIXG, OUTPUT);
-  pinMode( MATRIXA, OUTPUT);
-  pinMode( MATRIXB, OUTPUT);
-  pinMode( MATRIXC, OUTPUT);
-  pinMode( MATRIXD, OUTPUT);
-  // Timer 1 set up as a FREQ Hz sample interrupt, only common thing this affects is servo library
-  TCCR1A = 0;
-  TCCR1B = _BV(WGM12) | _BV(CS10);
-  TCNT1 = 0;
-  OCR1A = F_CPU / MATRIXFREQ;
-  TIMSK1 = _BV(OCIE1A);
-}
+  digitalWrite(EN, HIGH);
+  digitalWrite(ROW(1),row & 1); // 0001
+  digitalWrite(ROW(2),row & 2); // 0010
+  digitalWrite(ROW(3),row & 4); // 0100
+  digitalWrite(ROW(4),row & 8); // 1000
+  digitalWrite(LATCH, LOW);
 
-ISR(TIMER1_COMPA_vect) {    //gets triggered FREQ times/second
-  int a;
-  a=analogRead(AUDIO)-512;  //read a sample
-  if(i){                    //save sample if we aren't busy processing
-    data[i] = a;
-    im[i] = 0;
-    i--;
-  }
-  matrixscan++;                         //next column on matrix
-  digitalWrite(MATRIXG,HIGH);           //blank for data shuffle
-  digitalWrite(MATRIXA, (matrixscan&1));//set row
-  digitalWrite(MATRIXB, (matrixscan&2));
-  digitalWrite(MATRIXC, (matrixscan&4));
-  digitalWrite(MATRIXD, (matrixscan&8));
-  digitalWrite(MATRIXLAT, LOW);
-  shiftOut(MATRIXDI, MATRIXCLK, LSBFIRST, 255-(matrixdata[matrixscan&15]&255));    //output row data
-  shiftOut(MATRIXDI, MATRIXCLK, LSBFIRST, 255-((matrixdata[matrixscan&15]>>8)&255));
-  digitalWrite(MATRIXLAT, HIGH); //latch data
-  digitalWrite(MATRIXG,LOW); //unblank
+  shiftOut(DATA, CLK, LSBFIRST, ~((bitmask)      & 0xFF)); //lower portion
+  shiftOut(DATA, CLK, LSBFIRST, ~((bitmask >> 8) & 0xFF)); //higher portion
+  digitalWrite(LATCH, HIGH);
+  digitalWrite(EN, LOW);
 }

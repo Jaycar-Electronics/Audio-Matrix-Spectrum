@@ -20,21 +20,24 @@ Using our compact XC4607 Matrix LED display, this project will give you a small 
 |5v||+|power|
 |vin|+5v||power|
 |gnd|gnd|g|ground|
-|d2|lat||display latch|
-|d3|clk||display clock|
-|d4|di||display data|
-|d5|g||display enable|
-|d6|a||column select 1|
-|d7|b||column select 2|
-|d8|c||column select 4|
-|d9|d||column select 8|
-|a7||a0|sound signal from microphone|
-|a6||d0|digital signal from sound module|
+|D2|lat||display latch|
+|D3|clk||display clock|
+|D4|di||display data|
+|D5|g||display enable|
+|D6|a||column select 1|
+|D7|b||column select 2|
+|D8|c||column select 4|
+|D9|d||column select 8|
+|A0||A0|sound signal from microphone|
 
 
 Note that we are using the VIN pin on the Nano as a 5V supply to the LED Matrix- this will only work if the Nano is receiving 5V from the USB socket, and may burn out the LED's if VIN is much more than 5V. Luckily, there are two GND connections on the Nano board (there is also an extra GND and 5V connection on the ICSP header, if you need them).
 
 Although it looks like a lot of connections, the connections to the matrix are made in the same order at both ends, so the wiring can be made neat by taking a strip of ten jumper leads and running them between the two boards, eight for the connections at one end, then two for the connections at the other end. The connections to the Sound Module can similarly be made with a strip of four jumper leads- just watch out, because they aren't in any obvious order.
+
+## Libraries 
+Included in the project folder is a `FHT.zip` zip file, this is the FHT library that we use for this project; extract this FHT folder into your Documents/arduino/libraries folder.
+
 
 ## Setup
 
@@ -44,7 +47,7 @@ The small blue potentiometer on the Sound Module may need to be adjusted. We wan
 
 The code consists of three files- the main sketch file and two included files. The two extra files perform what is called a 'Fast Fourier Transform', which turns audio samples into a representation of the sound frequencies in that sample. The main sketch mostly revolves around a timer interrupt, which ensures that the display refresh and the audio samples occur at a regular rate. When a complete set of samples has been captured, the Fast Fourier transform is performed, and the results are converted for display on the matrix.
 
-Make sure that all the files in the right folder, choose the Nano board and upload the code. You should immediately see at least a line of LEDs lit at the bottom of the matrix. If some columns are missing, you might have one of the A, B, C or D wires not connected correctly. If there is random flickering, check the other wires to the matrix. The display should respond to a gentle tap on the microphone- if this doesn't happen, check the A7 connection to the Sound Module.
+Make sure that all the files in the right folder, choose the Nano board and upload the code. You should immediately see at least a line of LEDs lit at the bottom of the matrix. If some columns are missing, you might have one of the A, B, C or D wires not connected correctly. If there is random flickering, check the other wires to the matrix. The display should respond to a gentle tap on the microphone- if this doesn't happen, check the A0 connection to the Sound Module.
 
 ## Improvements
 
